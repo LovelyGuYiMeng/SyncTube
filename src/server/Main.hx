@@ -6,6 +6,7 @@ import Types.FlashbackItem;
 import Types.Message;
 import Types.Permission;
 import Types.PlayerType;
+import Types.ServerConfig;
 import Types.UserList;
 import Types.VideoItem;
 import Types.WsEvent;
@@ -26,6 +27,7 @@ import json2object.JsonParser;
 import server.cache.Cache;
 import sys.FileSystem;
 import sys.io.File;
+import utils.macro.Macro;
 
 private typedef MainOptions = {
 	loadState:Bool
@@ -34,6 +36,7 @@ private typedef MainOptions = {
 class Main {
 	public static inline var MIN_PASSWORD_LENGTH = 4;
 	public static inline var MAX_PASSWORD_LENGTH = 50;
+	static inline var SERVER_VERSION = 2;
 	static inline var VIDEO_START_MAX_DELAY = 3000;
 	static inline var VIDEO_SKIP_DELAY = 1000;
 	static inline var FLASHBACKS_COUNT = 50;
@@ -44,7 +47,7 @@ class Main {
 
 	public final userDir:String;
 	public final logsDir:String;
-	public final config:Config;
+	public final config:ServerConfig;
 	public final isNoState:Bool;
 
 	final verbose:Bool;
@@ -120,6 +123,12 @@ class Main {
 			exit();
 		});
 
+		config = loadUserConfig();
+		config.serverVersion = SERVER_VERSION;
+		config.isVerbose = verbose;
+		userList = loadUsers();
+		config.salt = generateConfigSalt(userList);
+
 		logger = new Logger(logsDir, 10, verbose);
 		consoleInput = new ConsoleInput(this);
 		consoleInput.initConsoleInput();
@@ -127,11 +136,8 @@ class Main {
 		if (cache.isYtReady) playersCacheSupport.push(YoutubeType);
 		initIntergationHandlers();
 		loadState();
-		config = loadUserConfig();
 		cache.setStorageLimit(cast config.cacheStorageLimitGiB * 1024 * 1024 * 1024);
-		userList = loadUsers();
-		config.isVerbose = verbose;
-		config.salt = generateConfigSalt();
+
 		if (config.localNetworkOnly) localIp = "127.0.0.1";
 		else localIp = Utils.getLocalIp();
 		globalIp = localIp;
@@ -235,7 +241,7 @@ class Main {
 		};
 	}
 
-	function getSslConfig(config:Config):Null<{key:String, cert:String}> {
+	function getSslConfig(config:ServerConfig):Null<{key:String, cert:String}> {
 		final c = config;
 		if (c.sslKeyPemPath.length == 0 && c.sslCertPemPath.length == 0) return null;
 		final hasBoth = FileSystem.exists(c.sslKeyPemPath)
@@ -264,12 +270,12 @@ class Main {
 		process.exit();
 	}
 
-	function generateConfigSalt():String {
-		userList.salt ??= Sha256.encode('${Math.random()}');
-		return userList.salt;
+	function generateConfigSalt(users:UserList):String {
+		users.salt ??= Sha256.encode('${Math.random()}');
+		return users.salt;
 	}
 
-	function loadUserConfig():Config {
+	function loadUserConfig():ServerConfig {
 		final config = getUserConfig();
 		inline function getPermissions(type:Permission):Array<Permission> {
 			return Reflect.field(config.permissions, cast type);
@@ -289,12 +295,12 @@ class Main {
 		return config;
 	}
 
-	function getUserConfig():Config {
-		final config:Config = Json.parse(File.getContent('$rootDir/default-config.json'));
+	function getUserConfig():ServerConfig {
+		final config:ServerConfig = Json.parse(File.getContent('$rootDir/default-config.json'));
 		if (isNoState) return config;
 		final customPath = '$userDir/config.json';
 		if (!FileSystem.exists(customPath)) return config;
-		final customConfig:Config = Json.parse(File.getContent(customPath));
+		final customConfig:ServerConfig = Json.parse(File.getContent(customPath));
 		for (field in Reflect.fields(customConfig)) {
 			if (Reflect.field(config, field) == null) {
 				trace('Warning: config field "$field" is unknown');
@@ -563,7 +569,7 @@ class Main {
 					type: Connected,
 					connected: {
 						uuid: client.uuid,
-						config: config,
+						config: Macro.getTypedObject(config, Config),
 						history: messages,
 						isUnknownClient: true,
 						clientName: client.name,

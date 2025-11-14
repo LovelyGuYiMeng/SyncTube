@@ -1,6 +1,6 @@
 package server.cache;
 
-import haxe.Json;
+import haxe.io.Path;
 import js.lib.Promise;
 import js.node.ChildProcess;
 import sys.FileSystem;
@@ -30,7 +30,8 @@ class YoutubeCache {
 	}
 
 	public function checkUpdate():Void {
-		ytDlp.execAsync("-U", {
+		ytDlp.execAsync("", {
+			updateTo: main.config.ytDlp.channel,
 			onData: d -> {
 				trace(d);
 			}
@@ -136,36 +137,51 @@ class YoutubeCache {
 			}
 			if (!checkEnoughSpace(getTotalFormatsSize() * 2)) return;
 
-			final formatIds = if (videoFormat.format_id == audioFormat.format_id) {
+			final isMuxed = videoFormat.format_id == audioFormat.format_id;
+			final formatIds = if (isMuxed) {
 				videoFormat.format_id;
 			} else {
 				'${videoFormat.format_id}+${audioFormat.format_id}';
 			}
-			var totalSize = getTotalFormatsSize().limitMin(10);
+			final totalSize = getTotalFormatsSize().limitMin(10);
 			var videoSizeRatio = (videoFormat.filesize ?? 0).limitMin(8) / totalSize;
 			var audioSizeRatio = (audioFormat.filesize ?? 0).limitMin(2) / totalSize;
-			var isVideoFormatDownloading = true;
+			if (isMuxed) {
+				videoSizeRatio = 1;
+				audioSizeRatio = 0;
+			}
+			trace(formatIds, toMibString(totalSize), videoSizeRatio.toFixed(), audioSizeRatio.toFixed());
+
+			var videoRatioCache = 0.0;
+			var audioRatioCache = 0.0;
 			final dlVideo:Promise<String> = ytDlp.downloadAsync(url, {
 				format: formatIds,
 				output: '${cache.cacheDir}/$inVideoName',
 				remuxVideo: "mp4",
+				additionalOptions: ["--no-js-runtimes", "--js-runtimes", main.config.ytDlp.jsRuntime],
+				// verbose: true,
 				cookies: useCookies ? getCookiesPathOrNull() : null,
 				forceIpv4: true,
 				socketTimeout: 2,
 				extractorRetries: 0,
 				onProgress: p -> {
 					final isFinished = p.status == "finished";
+					if (isFinished) {
+						final filename = Path.withoutDirectory(p.filename);
+						trace('$filename format file downloaded');
+					}
 					var ratio = if (isFinished) {
 						1;
 					} else {
 						(p.downloaded / p.total).clamp(0, 1);
 					}
-					if (isVideoFormatDownloading) {
-						ratio = ratio * videoSizeRatio;
-					} else {
-						ratio = videoSizeRatio + ratio * audioSizeRatio;
-					}
-					if (isFinished) isVideoFormatDownloading = false;
+
+					final isVideo = p.filename.contains('f${videoFormat.format_id}');
+					if (isVideo) videoRatioCache = ratio;
+					else audioRatioCache = ratio;
+
+					ratio = videoRatioCache * videoSizeRatio + audioRatioCache * audioSizeRatio;
+
 					main.sendByName(clientName, {
 						type: Progress,
 						progress: {
@@ -247,6 +263,10 @@ class YoutubeCache {
 		final resolution = videoFormatResolution(format);
 		// when there is 720p and 720p60 formats
 		return format.format_note ?? '${resolution}p';
+	}
+
+	inline function toMibString(bytes:Int):String {
+		return '${(bytes / 1024 / 1024).toFixed()} MiB';
 	}
 
 	function log(clientName:String, msg:String):Void {

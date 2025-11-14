@@ -29,28 +29,35 @@ typedef VideoData = {
 	var ?playerType:PlayerType;
 }
 
-typedef Config = {
-	port:Int,
-	channelName:String,
-	maxLoginLength:Int,
-	maxMessageLength:Int,
+typedef ServerConfig = Config & {
 	serverChatHistory:Int,
-	totalVideoLimit:Int,
-	userVideoLimit:Int,
-	requestLeaderOnPause:Bool,
-	unpauseWithoutLeader:Bool,
 	localAdmins:Bool,
 	allowProxyIps:Bool,
 	localNetworkOnly:Bool,
 	sslKeyPemPath:String,
 	sslCertPemPath:String,
+	cacheStorageLimitGiB:Float,
+	ytDlp:{
+		channel:String, jsRuntime:String,
+	},
+}
+
+typedef Config = {
+	port:Int,
+	channelName:String,
+	maxLoginLength:Int,
+	maxMessageLength:Int,
+	totalVideoLimit:Int,
+	userVideoLimit:Int,
+	requestLeaderOnPause:Bool,
+	unpauseWithoutLeader:Bool,
 	templateUrl:String,
 	youtubeApiKey:String,
 	youtubePlaylistLimit:Int,
-	cacheStorageLimitGiB:Float,
 	permissions:Permissions,
 	emotes:Array<Emote>,
 	filters:Array<Filter>,
+	?serverVersion:Int,
 	?isVerbose:Bool,
 	?salt:String
 }
